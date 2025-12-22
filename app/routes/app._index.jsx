@@ -8,7 +8,6 @@ export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
   const shop = session.shop;
 
-  // Hole alle Produkte vom Shop
   const response = await admin.graphql(`
     {
       products(first: 50) {
@@ -26,7 +25,6 @@ export const loader = async ({ request }) => {
   const { data } = await response.json();
   const products = data.products.nodes;
 
-  // Hole existierende Kalkulator-Konfigurationen
   const calculators = await prisma.productCalculator.findMany({
     where: { shop },
   });
@@ -45,7 +43,7 @@ export const action = async ({ request }) => {
     const productTitle = formData.get("productTitle");
     const unitType = formData.get("unitType");
     const unitLabel = formData.get("unitLabel");
-    const coverage = parseFloat(formData.get("coverage"));
+    const coverage = parseFloat(formData.get("coverage")) || 0;
     const coverageUnit = formData.get("coverageUnit");
     const wasteFactor = parseFloat(formData.get("wasteFactor")) || 1.1;
 
@@ -92,17 +90,17 @@ export default function Index() {
 
   const [formData, setFormData] = useState({
     unitType: "area_metric",
-    unitLabel: "m²",
+    unitLabel: "sqm",
     coverage: "",
-    coverageUnit: "m²/Liter",
+    coverageUnit: "sqm/Liter",
     wasteFactor: "1.1",
   });
 
   const unitOptions = [
-    { value: "area_metric", label: "Area (m²)", unit: "m²", coverageUnit: "m²/Liter" },
+    { value: "area_metric", label: "Area (sqm)", unit: "sqm", coverageUnit: "sqm/Liter" },
     { value: "area_imperial", label: "Area (sq ft)", unit: "sq ft", coverageUnit: "sq ft/Gallon" },
     { value: "length_metric", label: "Length (m)", unit: "m", coverageUnit: "m/Roll" },
-    { value: "length_imperial", label: "Length (ft/in)", unit: "ft", coverageUnit: "ft/Roll" },
+    { value: "length_imperial", label: "Length (ft)", unit: "ft", coverageUnit: "ft/Roll" },
     { value: "volume_metric", label: "Volume (L)", unit: "L", coverageUnit: "L/kg" },
     { value: "volume_imperial", label: "Volume (Gallon)", unit: "gal", coverageUnit: "gal/lb" },
     { value: "pieces", label: "Pieces", unit: "pcs", coverageUnit: "pcs/Pack" },
@@ -111,7 +109,6 @@ export default function Index() {
   const handleProductSelect = (product) => {
     setSelectedProduct(product);
     setShowForm(true);
-    // Check if calculator already exists
     const existing = calculators.find(c => c.productId === product.id);
     if (existing) {
       setFormData({
@@ -124,9 +121,9 @@ export default function Index() {
     } else {
       setFormData({
         unitType: "area_metric",
-        unitLabel: "m²",
+        unitLabel: "sqm",
         coverage: "",
-        coverageUnit: "m²/Liter",
+        coverageUnit: "sqm/Liter",
         wasteFactor: "1.1",
       });
     }
@@ -164,11 +161,10 @@ export default function Index() {
 
   return (
     <s-page heading="CalcCart - Material Calculator">
-      <s-button slot="primary-action" onClick={() => setShowForm(false)}>
+      <s-button slot="primary-action" onClick={() => window.location.reload()}>
         Refresh
       </s-button>
 
-      {/* Active Calculators */}
       <s-section heading={`Active Calculators (${calculators.length})`}>
         {calculators.length === 0 ? (
           <s-box padding="base" background="subdued" borderRadius="base">
@@ -182,8 +178,7 @@ export default function Index() {
                   <s-stack direction="block" gap="tight">
                     <s-text fontWeight="bold">{calc.productTitle}</s-text>
                     <s-text tone="subdued">
-                      1 unit covers {calc.coverage} {calc.unitLabel} |
-                      Waste: {((calc.wasteFactor - 1) * 100).toFixed(0)}%
+                      1 unit covers {calc.coverage} {calc.unitLabel} | Waste: {((calc.wasteFactor - 1) * 100).toFixed(0)}%
                     </s-text>
                   </s-stack>
                   <s-stack direction="inline" gap="tight">
@@ -201,7 +196,6 @@ export default function Index() {
         )}
       </s-section>
 
-      {/* Product Selection */}
       {!showForm && (
         <s-section heading="Add Calculator to Product">
           <s-stack direction="block" gap="base">
@@ -226,7 +220,7 @@ export default function Index() {
                       )}
                       <s-stack direction="block" gap="tight">
                         <s-text fontWeight="bold">{product.title}</s-text>
-                        {isConfigured && <s-text tone="success">✓ Calculator active</s-text>}
+                        {isConfigured && <s-text tone="success">Calculator active</s-text>}
                       </s-stack>
                     </s-stack>
                     <s-button onClick={() => handleProductSelect(product)}>
@@ -240,7 +234,6 @@ export default function Index() {
         </s-section>
       )}
 
-      {/* Configuration Form */}
       {showForm && selectedProduct && (
         <s-section heading={`Configure: ${selectedProduct.title}`}>
           <s-box padding="loose" borderWidth="base" borderRadius="large">
@@ -264,12 +257,12 @@ export default function Index() {
                 <input
                   type="number"
                   step="0.1"
-                  placeholder="e.g. 6 (for 6 m² per Liter)"
+                  placeholder="e.g. 6 (for 6 sqm per Liter)"
                   value={formData.coverage}
                   onChange={(e) => setFormData({ ...formData, coverage: e.target.value })}
                   style={{ padding: "10px", borderRadius: "6px", border: "1px solid #ccc", width: "100%" }}
                 />
-                <s-text tone="subdued">Example: 1 Liter of paint covers 6 m² → enter "6"</s-text>
+                <s-text tone="subdued">Example: 1 Liter of paint covers 6 sqm - enter 6</s-text>
               </s-stack>
 
               <s-stack direction="block" gap="tight">
@@ -300,14 +293,13 @@ export default function Index() {
         </s-section>
       )}
 
-      {/* Info Sidebar */}
       <s-section slot="aside" heading="How It Works">
         <s-box padding="base" borderRadius="base" background="subdued">
           <s-stack direction="block" gap="base">
-            <s-text>1️⃣ Select a product</s-text>
-            <s-text>2️⃣ Enter coverage (e.g. 6 m²/Liter)</s-text>
-            <s-text>3️⃣ Set waste factor</s-text>
-            <s-text>4️⃣ Widget appears on product page</s-text>
+            <s-text>1. Select a product</s-text>
+            <s-text>2. Enter coverage (e.g. 6 sqm/Liter)</s-text>
+            <s-text>3. Set waste factor</s-text>
+            <s-text>4. Widget appears on product page</s-text>
           </s-stack>
         </s-box>
       </s-section>
@@ -315,7 +307,7 @@ export default function Index() {
       <s-section slot="aside" heading="Coming Soon">
         <s-box padding="base" borderRadius="base" background="info-subdued">
           <s-stack direction="block" gap="tight">
-            <s-text fontWeight="bold">🤖 AI Magic Setup</s-text>
+            <s-text fontWeight="bold">AI Magic Setup</s-text>
             <s-text tone="subdued">Upload a product datasheet and let AI extract the coverage automatically!</s-text>
           </s-stack>
         </s-box>
@@ -329,3 +321,5 @@ export const headers = (headersArgs) => {
 };
 ```
 
+Speichern (als UTF-8!), dann:
+```
