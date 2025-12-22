@@ -32,3 +32,28 @@ model Session {
   refreshToken        String?
   refreshTokenExpires DateTime?
 }
+
+model ProductCalculator {
+  id              String   @id @default(cuid())
+  shop            String
+  productId       String
+  productTitle    String
+  
+  // Kalkulator-Einstellungen
+  unitType        String   // "area", "length", "volume", "pieces"
+  unitLabel       String   // "m²", "m", "Liter", "Stück"
+  coverage        Float    // Ergiebigkeit: 1 Einheit deckt X ab
+  coverageUnit    String   // "m²/Liter", "m²/kg", etc.
+  wasteFactor     Float    @default(1.1)  // 10% Verschnitt
+  minQuantity     Float    @default(1)
+  
+  // AI-extrahierte Daten
+  aiExtracted     Boolean  @default(false)
+  sourceText      String?  // Original-Text vom Datenblatt
+  
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@unique([shop, productId])
+}

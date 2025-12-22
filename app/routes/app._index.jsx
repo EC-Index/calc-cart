@@ -1,238 +1,321 @@
-import { useEffect } from "react";
-import { useFetcher } from "react-router";
-import { useAppBridge } from "@shopify/app-bridge-react";
+import { useLoaderData, useFetcher } from "react-router";
+import { useState } from "react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
+import prisma from "../db.server";
 
 export const loader = async ({ request }) => {
-  await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
+  const shop = session.shop;
 
-  return null;
+  // Hole alle Produkte vom Shop
+  const response = await admin.graphql(`
+    {
+      products(first: 50) {
+        nodes {
+          id
+          title
+          featuredImage {
+            url
+          }
+        }
+      }
+    }
+  `);
+
+  const { data } = await response.json();
+  const products = data.products.nodes;
+
+  // Hole existierende Kalkulator-Konfigurationen
+  const calculators = await prisma.productCalculator.findMany({
+    where: { shop },
+  });
+
+  return { products, calculators, shop };
 };
 
 export const action = async ({ request }) => {
-  const { admin } = await authenticate.admin(request);
-  const color = ["Red", "Orange", "Yellow", "Green"][
-    Math.floor(Math.random() * 4)
-  ];
-  const response = await admin.graphql(
-    `#graphql
-      mutation populateProduct($product: ProductCreateInput!) {
-        productCreate(product: $product) {
-          product {
-            id
-            title
-            handle
-            status
-            variants(first: 10) {
-              edges {
-                node {
-                  id
-                  price
-                  barcode
-                  createdAt
-                }
-              }
-            }
-          }
-        }
-      }`,
-    {
-      variables: {
-        product: {
-          title: `${color} Snowboard`,
-        },
-      },
-    },
-  );
-  const responseJson = await response.json();
-  const product = responseJson.data.productCreate.product;
-  const variantId = product.variants.edges[0].node.id;
-  const variantResponse = await admin.graphql(
-    `#graphql
-    mutation shopifyReactRouterTemplateUpdateVariant($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
-      productVariantsBulkUpdate(productId: $productId, variants: $variants) {
-        productVariants {
-          id
-          price
-          barcode
-          createdAt
-        }
-      }
-    }`,
-    {
-      variables: {
-        productId: product.id,
-        variants: [{ id: variantId, price: "100.00" }],
-      },
-    },
-  );
-  const variantResponseJson = await variantResponse.json();
+  const { session } = await authenticate.admin(request);
+  const shop = session.shop;
+  const formData = await request.formData();
+  const actionType = formData.get("action");
 
-  return {
-    product: responseJson.data.productCreate.product,
-    variant: variantResponseJson.data.productVariantsBulkUpdate.productVariants,
-  };
+  if (actionType === "create") {
+    const productId = formData.get("productId");
+    const productTitle = formData.get("productTitle");
+    const unitType = formData.get("unitType");
+    const unitLabel = formData.get("unitLabel");
+    const coverage = parseFloat(formData.get("coverage"));
+    const coverageUnit = formData.get("coverageUnit");
+    const wasteFactor = parseFloat(formData.get("wasteFactor")) || 1.1;
+
+    await prisma.productCalculator.upsert({
+      where: { shop_productId: { shop, productId } },
+      update: {
+        productTitle,
+        unitType,
+        unitLabel,
+        coverage,
+        coverageUnit,
+        wasteFactor,
+        isActive: true,
+      },
+      create: {
+        shop,
+        productId,
+        productTitle,
+        unitType,
+        unitLabel,
+        coverage,
+        coverageUnit,
+        wasteFactor,
+      },
+    });
+
+    return { success: true, message: "Calculator saved!" };
+  }
+
+  if (actionType === "delete") {
+    const id = formData.get("id");
+    await prisma.productCalculator.delete({ where: { id } });
+    return { success: true, message: "Calculator deleted!" };
+  }
+
+  return { success: false };
 };
 
 export default function Index() {
+  const { products, calculators } = useLoaderData();
   const fetcher = useFetcher();
-  const shopify = useAppBridge();
-  const isLoading =
-    ["loading", "submitting"].includes(fetcher.state) &&
-    fetcher.formMethod === "POST";
+  const [selectedProduct, setSelectedProduct] = useState(null);
+  const [showForm, setShowForm] = useState(false);
 
-  useEffect(() => {
-    if (fetcher.data?.product?.id) {
-      shopify.toast.show("Product created");
+  const [formData, setFormData] = useState({
+    unitType: "area",
+    unitLabel: "m²",
+    coverage: "",
+    coverageUnit: "m²/Liter",
+    wasteFactor: "1.1",
+  });
+
+  const unitOptions = [
+    { value: "area", label: "Fläche (m²)", unit: "m²", coverageUnit: "m²/Liter" },
+    { value: "length", label: "Länge (m)", unit: "m", coverageUnit: "m/Rolle" },
+    { value: "volume", label: "Volumen (L)", unit: "L", coverageUnit: "L/kg" },
+    { value: "pieces", label: "Stück", unit: "Stück", coverageUnit: "Stück/Packung" },
+  ];
+
+  const handleProductSelect = (product) => {
+    setSelectedProduct(product);
+    setShowForm(true);
+    // Check if calculator already exists
+    const existing = calculators.find(c => c.productId === product.id);
+    if (existing) {
+      setFormData({
+        unitType: existing.unitType,
+        unitLabel: existing.unitLabel,
+        coverage: existing.coverage.toString(),
+        coverageUnit: existing.coverageUnit,
+        wasteFactor: existing.wasteFactor.toString(),
+      });
+    } else {
+      setFormData({
+        unitType: "area",
+        unitLabel: "m²",
+        coverage: "",
+        coverageUnit: "m²/Liter",
+        wasteFactor: "1.1",
+      });
     }
-  }, [fetcher.data?.product?.id, shopify]);
-  const generateProduct = () => fetcher.submit({}, { method: "POST" });
+  };
+
+  const handleUnitTypeChange = (value) => {
+    const option = unitOptions.find(o => o.value === value);
+    setFormData({
+      ...formData,
+      unitType: value,
+      unitLabel: option.unit,
+      coverageUnit: option.coverageUnit,
+    });
+  };
+
+  const handleSubmit = () => {
+    fetcher.submit(
+      {
+        action: "create",
+        productId: selectedProduct.id,
+        productTitle: selectedProduct.title,
+        ...formData,
+      },
+      { method: "POST" }
+    );
+    setShowForm(false);
+    setSelectedProduct(null);
+  };
+
+  const handleDelete = (id) => {
+    fetcher.submit({ action: "delete", id }, { method: "POST" });
+  };
+
+  const getConfiguredProductIds = () => calculators.map(c => c.productId);
 
   return (
-    <s-page heading="Shopify app template">
-      <s-button slot="primary-action" onClick={generateProduct}>
-        Generate a product
+    <s-page heading="CalcCart - Material Calculator">
+      <s-button slot="primary-action" onClick={() => setShowForm(false)}>
+        Refresh
       </s-button>
 
-      <s-section heading="Congrats on creating a new Shopify app 🎉">
-        <s-paragraph>
-          This embedded app template uses{" "}
-          <s-link
-            href="https://shopify.dev/docs/apps/tools/app-bridge"
-            target="_blank"
-          >
-            App Bridge
-          </s-link>{" "}
-          interface examples like an{" "}
-          <s-link href="/app/additional">additional page in the app nav</s-link>
-          , as well as an{" "}
-          <s-link
-            href="https://shopify.dev/docs/api/admin-graphql"
-            target="_blank"
-          >
-            Admin GraphQL
-          </s-link>{" "}
-          mutation demo, to provide a starting point for app development.
-        </s-paragraph>
-      </s-section>
-      <s-section heading="Get started with products">
-        <s-paragraph>
-          Generate a product with GraphQL and get the JSON output for that
-          product. Learn more about the{" "}
-          <s-link
-            href="https://shopify.dev/docs/api/admin-graphql/latest/mutations/productCreate"
-            target="_blank"
-          >
-            productCreate
-          </s-link>{" "}
-          mutation in our API references.
-        </s-paragraph>
-        <s-stack direction="inline" gap="base">
-          <s-button
-            onClick={generateProduct}
-            {...(isLoading ? { loading: true } : {})}
-          >
-            Generate a product
-          </s-button>
-          {fetcher.data?.product && (
-            <s-button
-              onClick={() => {
-                shopify.intents.invoke?.("edit:shopify/Product", {
-                  value: fetcher.data?.product?.id,
-                });
-              }}
-              target="_blank"
-              variant="tertiary"
-            >
-              Edit product
-            </s-button>
-          )}
-        </s-stack>
-        {fetcher.data?.product && (
-          <s-section heading="productCreate mutation">
-            <s-stack direction="block" gap="base">
-              <s-box
-                padding="base"
-                borderWidth="base"
-                borderRadius="base"
-                background="subdued"
-              >
-                <pre style={{ margin: 0 }}>
-                  <code>{JSON.stringify(fetcher.data.product, null, 2)}</code>
-                </pre>
+      {/* Active Calculators */}
+      <s-section heading={`Active Calculators (${calculators.length})`}>
+        {calculators.length === 0 ? (
+          <s-box padding="base" background="subdued" borderRadius="base">
+            <s-text>No calculators configured yet. Select a product below to get started!</s-text>
+          </s-box>
+        ) : (
+          <s-stack direction="block" gap="base">
+            {calculators.map((calc) => (
+              <s-box key={calc.id} padding="base" borderWidth="base" borderRadius="base">
+                <s-stack direction="inline" gap="base" align="space-between">
+                  <s-stack direction="block" gap="tight">
+                    <s-text fontWeight="bold">{calc.productTitle}</s-text>
+                    <s-text tone="subdued">
+                      1 unit covers {calc.coverage} {calc.unitLabel} | 
+                      Waste: {((calc.wasteFactor - 1) * 100).toFixed(0)}%
+                    </s-text>
+                  </s-stack>
+                  <s-stack direction="inline" gap="tight">
+                    <s-button variant="secondary" onClick={() => handleProductSelect({ id: calc.productId, title: calc.productTitle })}>
+                      Edit
+                    </s-button>
+                    <s-button variant="destructive" onClick={() => handleDelete(calc.id)}>
+                      Delete
+                    </s-button>
+                  </s-stack>
+                </s-stack>
               </s-box>
-
-              <s-heading>productVariantsBulkUpdate mutation</s-heading>
-              <s-box
-                padding="base"
-                borderWidth="base"
-                borderRadius="base"
-                background="subdued"
-              >
-                <pre style={{ margin: 0 }}>
-                  <code>{JSON.stringify(fetcher.data.variant, null, 2)}</code>
-                </pre>
-              </s-box>
-            </s-stack>
-          </s-section>
+            ))}
+          </s-stack>
         )}
       </s-section>
 
-      <s-section slot="aside" heading="App template specs">
-        <s-paragraph>
-          <s-text>Framework: </s-text>
-          <s-link href="https://reactrouter.com/" target="_blank">
-            React Router
-          </s-link>
-        </s-paragraph>
-        <s-paragraph>
-          <s-text>Interface: </s-text>
-          <s-link
-            href="https://shopify.dev/docs/api/app-home/using-polaris-components"
-            target="_blank"
-          >
-            Polaris web components
-          </s-link>
-        </s-paragraph>
-        <s-paragraph>
-          <s-text>API: </s-text>
-          <s-link
-            href="https://shopify.dev/docs/api/admin-graphql"
-            target="_blank"
-          >
-            GraphQL
-          </s-link>
-        </s-paragraph>
-        <s-paragraph>
-          <s-text>Database: </s-text>
-          <s-link href="https://www.prisma.io/" target="_blank">
-            Prisma
-          </s-link>
-        </s-paragraph>
+      {/* Product Selection */}
+      {!showForm && (
+        <s-section heading="Add Calculator to Product">
+          <s-stack direction="block" gap="base">
+            {products.map((product) => {
+              const isConfigured = getConfiguredProductIds().includes(product.id);
+              return (
+                <s-box 
+                  key={product.id} 
+                  padding="base" 
+                  borderWidth="base" 
+                  borderRadius="base"
+                  background={isConfigured ? "success-subdued" : "default"}
+                >
+                  <s-stack direction="inline" gap="base" align="space-between">
+                    <s-stack direction="inline" gap="base">
+                      {product.featuredImage?.url && (
+                        <img 
+                          src={product.featuredImage.url} 
+                          alt={product.title}
+                          style={{ width: 50, height: 50, objectFit: "cover", borderRadius: 4 }}
+                        />
+                      )}
+                      <s-stack direction="block" gap="tight">
+                        <s-text fontWeight="bold">{product.title}</s-text>
+                        {isConfigured && <s-text tone="success">✓ Calculator active</s-text>}
+                      </s-stack>
+                    </s-stack>
+                    <s-button onClick={() => handleProductSelect(product)}>
+                      {isConfigured ? "Edit" : "Add Calculator"}
+                    </s-button>
+                  </s-stack>
+                </s-box>
+              );
+            })}
+          </s-stack>
+        </s-section>
+      )}
+
+      {/* Configuration Form */}
+      {showForm && selectedProduct && (
+        <s-section heading={`Configure: ${selectedProduct.title}`}>
+          <s-box padding="loose" borderWidth="base" borderRadius="large">
+            <s-stack direction="block" gap="loose">
+              
+              <s-stack direction="block" gap="tight">
+                <s-text fontWeight="bold">Unit Type</s-text>
+                <select
+                  value={formData.unitType}
+                  onChange={(e) => handleUnitTypeChange(e.target.value)}
+                  style={{ padding: "10px", borderRadius: "6px", border: "1px solid #ccc", width: "100%" }}
+                >
+                  {unitOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </s-stack>
+
+              <s-stack direction="block" gap="tight">
+                <s-text fontWeight="bold">Coverage (1 unit covers how much?)</s-text>
+                <input
+                  type="number"
+                  step="0.1"
+                  placeholder="e.g. 6 (for 6 m² per Liter)"
+                  value={formData.coverage}
+                  onChange={(e) => setFormData({ ...formData, coverage: e.target.value })}
+                  style={{ padding: "10px", borderRadius: "6px", border: "1px solid #ccc", width: "100%" }}
+                />
+                <s-text tone="subdued">Example: 1 Liter of paint covers 6 m² → enter "6"</s-text>
+              </s-stack>
+
+              <s-stack direction="block" gap="tight">
+                <s-text fontWeight="bold">Waste Factor</s-text>
+                <select
+                  value={formData.wasteFactor}
+                  onChange={(e) => setFormData({ ...formData, wasteFactor: e.target.value })}
+                  style={{ padding: "10px", borderRadius: "6px", border: "1px solid #ccc", width: "100%" }}
+                >
+                  <option value="1.0">0% (No waste)</option>
+                  <option value="1.05">5%</option>
+                  <option value="1.1">10% (Recommended)</option>
+                  <option value="1.15">15%</option>
+                  <option value="1.2">20%</option>
+                </select>
+              </s-stack>
+
+              <s-stack direction="inline" gap="base">
+                <s-button variant="primary" onClick={handleSubmit}>
+                  Save Calculator
+                </s-button>
+                <s-button variant="secondary" onClick={() => { setShowForm(false); setSelectedProduct(null); }}>
+                  Cancel
+                </s-button>
+              </s-stack>
+            </s-stack>
+          </s-box>
+        </s-section>
+      )}
+
+      {/* Info Sidebar */}
+      <s-section slot="aside" heading="How It Works">
+        <s-box padding="base" borderRadius="base" background="subdued">
+          <s-stack direction="block" gap="base">
+            <s-text>1️⃣ Select a product</s-text>
+            <s-text>2️⃣ Enter coverage (e.g. 6 m²/Liter)</s-text>
+            <s-text>3️⃣ Set waste factor</s-text>
+            <s-text>4️⃣ Widget appears on product page</s-text>
+          </s-stack>
+        </s-box>
       </s-section>
 
-      <s-section slot="aside" heading="Next steps">
-        <s-unordered-list>
-          <s-list-item>
-            Build an{" "}
-            <s-link
-              href="https://shopify.dev/docs/apps/getting-started/build-app-example"
-              target="_blank"
-            >
-              example app
-            </s-link>
-          </s-list-item>
-          <s-list-item>
-            Explore Shopify&apos;s API with{" "}
-            <s-link
-              href="https://shopify.dev/docs/apps/tools/graphiql-admin-api"
-              target="_blank"
-            >
-              GraphiQL
-            </s-link>
-          </s-list-item>
-        </s-unordered-list>
+      <s-section slot="aside" heading="Coming Soon">
+        <s-box padding="base" borderRadius="base" background="info-subdued">
+          <s-stack direction="block" gap="tight">
+            <s-text fontWeight="bold">🤖 AI Magic Setup</s-text>
+            <s-text tone="subdued">Upload a product datasheet and let AI extract the coverage automatically!</s-text>
+          </s-stack>
+        </s-box>
       </s-section>
     </s-page>
   );
