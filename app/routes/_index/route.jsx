@@ -4,23 +4,20 @@ import styles from "./styles.module.css";
 
 export const loader = async ({ request }) => {
   const url = new URL(request.url);
-
   if (url.searchParams.get("shop")) {
     throw redirect(`/app?${url.searchParams.toString()}`);
   }
-
   return { showForm: Boolean(login) };
 };
 
 export default function App() {
   const { showForm } = useLoaderData();
-
   return (
     <div className={styles.index}>
       <div className={styles.content}>
-        <h1 className={styles.heading}>A short heading about [your app]</h1>
+        <h1 className={styles.heading}>CalcCart</h1>
         <p className={styles.text}>
-          A tagline about [your app] that describes your value proposition.
+          The right amount, every time.
         </p>
         {showForm && (
           <Form className={styles.form} method="post" action="/auth/login">
@@ -36,16 +33,13 @@ export default function App() {
         )}
         <ul className={styles.list}>
           <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
+            <strong>Smart Coverage Calculator</strong>. Help customers calculate exactly how much product they need.
           </li>
           <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
+            <strong>Metric & Imperial</strong>. Support for sqm, sq ft, gallons, liters and more.
           </li>
           <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
+            <strong>Waste Factor</strong>. Built-in waste calculation for accurate ordering.
           </li>
         </ul>
       </div>
