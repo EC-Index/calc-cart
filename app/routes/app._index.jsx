@@ -91,7 +91,7 @@ export default function Index() {
   const [showForm, setShowForm] = useState(false);
 
   const [formData, setFormData] = useState({
-    unitType: "area",
+    unitType: "area_metric",
     unitLabel: "m²",
     coverage: "",
     coverageUnit: "m²/Liter",
@@ -99,10 +99,13 @@ export default function Index() {
   });
 
   const unitOptions = [
-    { value: "area", label: "Fläche (m²)", unit: "m²", coverageUnit: "m²/Liter" },
-    { value: "length", label: "Länge (m)", unit: "m", coverageUnit: "m/Rolle" },
-    { value: "volume", label: "Volumen (L)", unit: "L", coverageUnit: "L/kg" },
-    { value: "pieces", label: "Stück", unit: "Stück", coverageUnit: "Stück/Packung" },
+    { value: "area_metric", label: "Area (m²)", unit: "m²", coverageUnit: "m²/Liter" },
+    { value: "area_imperial", label: "Area (sq ft)", unit: "sq ft", coverageUnit: "sq ft/Gallon" },
+    { value: "length_metric", label: "Length (m)", unit: "m", coverageUnit: "m/Roll" },
+    { value: "length_imperial", label: "Length (ft/in)", unit: "ft", coverageUnit: "ft/Roll" },
+    { value: "volume_metric", label: "Volume (L)", unit: "L", coverageUnit: "L/kg" },
+    { value: "volume_imperial", label: "Volume (Gallon)", unit: "gal", coverageUnit: "gal/lb" },
+    { value: "pieces", label: "Pieces", unit: "pcs", coverageUnit: "pcs/Pack" },
   ];
 
   const handleProductSelect = (product) => {
@@ -120,7 +123,7 @@ export default function Index() {
       });
     } else {
       setFormData({
-        unitType: "area",
+        unitType: "area_metric",
         unitLabel: "m²",
         coverage: "",
         coverageUnit: "m²/Liter",
@@ -179,7 +182,7 @@ export default function Index() {
                   <s-stack direction="block" gap="tight">
                     <s-text fontWeight="bold">{calc.productTitle}</s-text>
                     <s-text tone="subdued">
-                      1 unit covers {calc.coverage} {calc.unitLabel} | 
+                      1 unit covers {calc.coverage} {calc.unitLabel} |
                       Waste: {((calc.wasteFactor - 1) * 100).toFixed(0)}%
                     </s-text>
                   </s-stack>
@@ -205,18 +208,18 @@ export default function Index() {
             {products.map((product) => {
               const isConfigured = getConfiguredProductIds().includes(product.id);
               return (
-                <s-box 
-                  key={product.id} 
-                  padding="base" 
-                  borderWidth="base" 
+                <s-box
+                  key={product.id}
+                  padding="base"
+                  borderWidth="base"
                   borderRadius="base"
                   background={isConfigured ? "success-subdued" : "default"}
                 >
                   <s-stack direction="inline" gap="base" align="space-between">
                     <s-stack direction="inline" gap="base">
                       {product.featuredImage?.url && (
-                        <img 
-                          src={product.featuredImage.url} 
+                        <img
+                          src={product.featuredImage.url}
                           alt={product.title}
                           style={{ width: 50, height: 50, objectFit: "cover", borderRadius: 4 }}
                         />
@@ -242,7 +245,7 @@ export default function Index() {
         <s-section heading={`Configure: ${selectedProduct.title}`}>
           <s-box padding="loose" borderWidth="base" borderRadius="large">
             <s-stack direction="block" gap="loose">
-              
+
               <s-stack direction="block" gap="tight">
                 <s-text fontWeight="bold">Unit Type</s-text>
                 <select
@@ -324,3 +327,5 @@ export default function Index() {
 export const headers = (headersArgs) => {
   return boundary.headers(headersArgs);
 };
+```
+
