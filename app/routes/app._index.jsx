@@ -319,7 +319,4 @@ export default function Index() {
 export const headers = (headersArgs) => {
   return boundary.headers(headersArgs);
 };
-```
 
-Speichern (als UTF-8!), dann:
-```
