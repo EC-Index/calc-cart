@@ -1,4 +1,3 @@
-# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 client_id = "923c673715294742559e5436119719fa"
 name = "CalcCart"
 application_url = "https://calc-cart.onrender.com"
@@ -6,7 +5,6 @@ embedded = true
 
 [build]
 automatically_update_urls_on_dev = true
-include_config_on_deploy = true
 
 [webhooks]
 api_version = "2025-01"
@@ -18,11 +16,6 @@ api_version = "2025-01"
   [[webhooks.subscriptions]]
   topics = [ "app/scopes_update" ]
   uri = "/webhooks/app/scopes_update"
-
-[privacy_compliance]
-customer_data_request_url = "https://calc-cart.onrender.com/webhooks/customers/data_request"
-customer_deletion_url = "https://calc-cart.onrender.com/webhooks/customers/redact"
-shop_deletion_url = "https://calc-cart.onrender.com/webhooks/shop/redact"
 
 [access_scopes]
 scopes = "write_products"
